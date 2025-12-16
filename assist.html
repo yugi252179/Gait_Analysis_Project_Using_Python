@@ -1,0 +1,311 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AI Rehabilitation Assistant</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@3.13.0/dist/tf.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@tensorflow-models/posenet@2.2.2/dist/posenet.min.js"></script>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <style>
+        body { font-family: 'Inter', sans-serif; background-color: #f3f4f6; }
+        .container { max-width: 1200px; }
+        .card { background-color: white; border-radius: 0.75rem; box-shadow: 0 4px 6px -1px rgb(0 0 0 / 0.1); padding: 1.5rem; transition: all 0.3s; }
+        .exercise-card { cursor: pointer; }
+        .exercise-card:hover { transform: translateY(-5px); box-shadow: 0 10px 15px -3px rgb(0 0 0 / 0.1); }
+        .metric-value { font-weight: 700; color: #1e3a8a; font-size: 1.5rem; }
+        .feedback-good { color: #166534; background-color: #dcfce7; }
+        .feedback-improve { color: #991b1b; background-color: #fee2e2; }
+        .suggestion-card { background-color: #e0e7ff; border-left: 4px solid #4f46e5; }
+    </style>
+</head>
+<body class="p-4 md:p-8">
+    <div class="container mx-auto space-y-8">
+        <header class="text-center">
+            <h1 class="text-4xl font-bold text-gray-800">AI Rehabilitation Assistant</h1>
+            <p class="mt-2 text-gray-500">Your Personal Guide to a Stronger Recovery</p>
+        </header>
+
+        <!-- Step 1: Exercise Selection -->
+        <section id="exercise-selection-section" class="card">
+            <h2 class="text-2xl font-bold text-gray-700 mb-4 text-center">Step 1: Choose Your Exercise</h2>
+            <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                <!-- Knee Squat Card -->
+                <div onclick="selectExercise('knee_squat')" class="exercise-card p-6 text-center border rounded-lg">
+                    <img src="https://placehold.co/100x100/3b82f6/ffffff?text=Squat" alt="Knee Squat Icon" class="mx-auto mb-4 rounded-full">
+                    <h3 class="text-xl font-semibold text-gray-800">Knee Squat</h3>
+                    <p class="text-gray-500 text-sm mt-1">Strengthens legs and improves knee stability.</p>
+                </div>
+                <!-- Bicep Curl Card -->
+                <div onclick="selectExercise('bicep_curl')" class="exercise-card p-6 text-center border rounded-lg">
+                     <img src="https://placehold.co/100x100/10b981/ffffff?text=Curl" alt="Bicep Curl Icon" class="mx-auto mb-4 rounded-full">
+                    <h3 class="text-xl font-semibold text-gray-800">Bicep Curl</h3>
+                    <p class="text-gray-500 text-sm mt-1">Builds arm strength for lifting and carrying.</p>
+                </div>
+                 <!-- Shoulder Abduction Card -->
+                <div onclick="selectExercise('shoulder_abduction')" class="exercise-card p-6 text-center border rounded-lg">
+                     <img src="https://placehold.co/100x100/f59e0b/ffffff?text=Raise" alt="Shoulder Abduction Icon" class="mx-auto mb-4 rounded-full">
+                    <h3 class="text-xl font-semibold text-gray-800">Shoulder Raise</h3>
+                    <p class="text-gray-500 text-sm mt-1">Improves shoulder mobility for reaching.</p>
+                </div>
+            </div>
+        </section>
+
+        <!-- Step 2: Analysis Section -->
+        <section id="analysis-section" class="hidden card">
+             <h2 class="text-2xl font-bold text-gray-700 mb-4 text-center">Step 2: Record & Analyze Your Exercise</h2>
+             <div class="text-center mb-4">
+                <p class="text-gray-600">Upload a short video of you performing the exercise.</p>
+                <input type="file" id="video-upload" accept="video/*" class="mt-2 p-2 w-full max-w-md mx-auto border rounded-lg">
+             </div>
+             <div id="video-container" class="hidden relative w-full max-w-2xl mx-auto rounded-xl overflow-hidden shadow-lg bg-black">
+                <video id="video-preview" class="w-full" muted playsinline></video>
+                <canvas id="pose-canvas" class="absolute top-0 left-0 w-full h-full"></canvas>
+                <div id="realtime-feedback" class="absolute bottom-4 left-4 bg-black bg-opacity-50 text-white p-2 rounded-lg text-lg font-bold">
+                    Reps: <span id="rep-counter">0</span> | Angle: <span id="angle-display">0°</span>
+                </div>
+             </div>
+        </section>
+
+        <!-- Loading Spinner -->
+        <div id="loading-spinner" class="hidden text-center p-8">
+            <div class="inline-block h-12 w-12 animate-spin rounded-full border-4 border-solid border-current border-r-transparent text-blue-600"></div>
+            <p class="mt-4 text-lg text-gray-700">Analyzing your movement and generating feedback...</p>
+        </div>
+
+        <!-- Step 3: Results Dashboard -->
+        <section id="results-dashboard" class="hidden card">
+            <h2 class="text-2xl font-bold text-gray-700 mb-6 text-center">Step 3: Your Results & Suggestions</h2>
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-6 items-start">
+                <!-- Performance Metrics -->
+                <div class="space-y-4">
+                    <div class="text-center p-4 border rounded-lg">
+                        <p class="text-gray-500">Repetitions Completed</p>
+                        <p id="reps-result" class="metric-value">--</p>
+                    </div>
+                    <div class="text-center p-4 border rounded-lg">
+                        <p class="text-gray-500">Peak Range of Motion</p>
+                        <p id="rom-result" class="metric-value">--</p>
+                    </div>
+                     <div id="feedback-box" class="p-4 rounded-lg text-center font-semibold">
+                        <p id="feedback-text"></p>
+                    </div>
+                </div>
+                <!-- Suggestions -->
+                <div class="space-y-4">
+                    <div id="suggestion-card" class="suggestion-card p-4 rounded-lg">
+                        <h3 class="font-bold text-lg text-indigo-800">Your Next Step</h3>
+                        <p id="suggestion-text" class="mt-2 text-indigo-700"></p>
+                    </div>
+                     <div class="text-center">
+                         <button onclick="resetApp()" class="w-full bg-blue-600 text-white font-semibold py-3 rounded-lg shadow-md hover:bg-blue-700">Analyze Another Exercise</button>
+                    </div>
+                </div>
+            </div>
+        </section>
+    </div>
+
+    <script>
+        // --- UI Elements ---
+        const sections = {
+            selection: document.getElementById('exercise-selection-section'),
+            analysis: document.getElementById('analysis-section'),
+            dashboard: document.getElementById('results-dashboard'),
+            loading: document.getElementById('loading-spinner'),
+        };
+        const videoUpload = document.getElementById('video-upload');
+        const videoContainer = document.getElementById('video-container');
+        const videoPreview = document.getElementById('video-preview');
+        const poseCanvas = document.getElementById('pose-canvas');
+        const canvasCtx = poseCanvas.getContext('2d');
+        
+        // --- State ---
+        let model = null;
+        let selectedExercise = null;
+        let animationFrameId;
+
+        // --- Exercise Definitions ---
+        const EXERCISES = {
+            'knee_squat': {
+                name: 'Knee Squat',
+                targetJoints: ['leftHip', 'leftKnee', 'leftAnkle'],
+                thresholds: { peakAngle: 85, repAngle: 90 },
+                suggestions: {
+                    improve: "Your knee bend was limited. Let's work on range of motion with some 'Heel Slides' and 'Assisted Squats' using a chair for support.",
+                    success: "Excellent form! You've met your goal. To build more strength, you can now progress to 'Single Leg Squats' or add light weights."
+                }
+            },
+            'bicep_curl': {
+                name: 'Bicep Curl',
+                targetJoints: ['leftShoulder', 'leftElbow', 'leftWrist'],
+                thresholds: { peakAngle: 45, repAngle: 40 },
+                 suggestions: {
+                    improve: "You can bend your elbow a bit more. Focus on bringing your hand all the way to your shoulder. Try 'Isometric Bicep Holds' to build strength at the peak contraction.",
+                    success: "Great job! Your arm strength is improving. You can now increase the weight slightly or try 'Slow Negative Curls' to build more control."
+                }
+            },
+             'shoulder_abduction': {
+                name: 'Shoulder Raise',
+                targetJoints: ['leftHip', 'leftShoulder', 'leftElbow'],
+                 thresholds: { peakAngle: 80, repAngle: 75 },
+                 suggestions: {
+                    improve: "Let's work on raising your arm higher. Try 'Pendulum Swings' to improve mobility and 'Wall Push-ups' to build shoulder stability.",
+                    success: "Fantastic mobility! You've reached your target. You can now add a light resistance band or try raising your arm at different angles to challenge your shoulder."
+                }
+            }
+        };
+        
+        // --- App Flow ---
+        async function loadModel() {
+            model = await posenet.load({ architecture: 'MobileNetV1', outputStride: 16, multiplier: 0.75 });
+        }
+        loadModel(); // Load model on page start
+
+        function selectExercise(exerciseKey) {
+            selectedExercise = EXERCISES[exerciseKey];
+            sections.selection.classList.add('hidden');
+            sections.analysis.classList.remove('hidden');
+        }
+
+        videoUpload.addEventListener('change', (e) => {
+            const file = e.target.files[0];
+            if (file && model) {
+                const videoURL = URL.createObjectURL(file);
+                videoPreview.src = videoURL;
+                videoContainer.classList.remove('hidden');
+                videoPreview.play();
+                startAnalysis();
+            } else if (!model) {
+                alert("AI Model is still loading. Please wait a moment and try again.");
+            }
+        });
+        
+        function resetApp() {
+            if (animationFrameId) cancelAnimationFrame(animationFrameId);
+            sections.dashboard.classList.add('hidden');
+            sections.selection.classList.remove('hidden');
+            videoUpload.value = '';
+            videoContainer.classList.add('hidden');
+            selectedExercise = null;
+        }
+
+        // --- Analysis Logic ---
+        async function startAnalysis() {
+            let peakAngle = 180;
+            let repCounter = 0;
+            let isRepPhase = false; // To track if we are in the "down" phase of a rep
+            
+            const [p1, p2, p3] = selectedExercise.targetJoints;
+
+            const analyzeFrame = async () => {
+                const pose = await model.estimateSinglePose(videoPreview, { flipHorizontal: false });
+                
+                const angle = calculateAngle(
+                    pose.keypoints.find(k => k.part === p1),
+                    pose.keypoints.find(k => k.part === p2),
+                    pose.keypoints.find(k => k.part === p3)
+                );
+
+                if (angle) {
+                    // Update real-time display
+                    document.getElementById('angle-display').textContent = `${angle.toFixed(0)}°`;
+                    
+                    // Update peak angle
+                    if (angle < peakAngle) peakAngle = angle;
+                    
+                    // Repetition counting logic
+                    if (angle < selectedExercise.thresholds.repAngle && !isRepPhase) {
+                        isRepPhase = true; // Entered the "down" phase
+                    }
+                    if (angle > selectedExercise.thresholds.repAngle + 10 && isRepPhase) {
+                        repCounter++;
+                        document.getElementById('rep-counter').textContent = repCounter;
+                        isRepPhase = false; // Completed the rep
+                    }
+                }
+                
+                drawPose(pose);
+                
+                if (!videoPreview.paused && !videoPreview.ended) {
+                    animationFrameId = requestAnimationFrame(analyzeFrame);
+                }
+            };
+            
+            animationFrameId = requestAnimationFrame(analyzeFrame);
+
+            videoPreview.onended = () => {
+                cancelAnimationFrame(animationFrameId);
+                showResults(repCounter, 180 - peakAngle);
+            };
+        }
+
+        function showResults(reps, rangeOfMotion) {
+            sections.analysis.classList.add('hidden');
+            sections.loading.classList.remove('hidden');
+            
+            setTimeout(() => { // Simulate processing time
+                sections.loading.classList.add('hidden');
+                sections.dashboard.classList.remove('hidden');
+
+                document.getElementById('reps-result').textContent = reps;
+                document.getElementById('rom-result').textContent = `${rangeOfMotion.toFixed(1)}°`;
+                
+                const feedbackBox = document.getElementById('feedback-box');
+                const feedbackText = document.getElementById('feedback-text');
+                const suggestionText = document.getElementById('suggestion-text');
+
+                if (rangeOfMotion >= selectedExercise.thresholds.peakAngle) {
+                    feedbackBox.className = 'p-4 rounded-lg text-center font-semibold feedback-good';
+                    feedbackText.textContent = "Goal Achieved! Excellent work.";
+                    suggestionText.textContent = selectedExercise.suggestions.success;
+                } else {
+                    feedbackBox.className = 'p-4 rounded-lg text-center font-semibold feedback-improve';
+                    feedbackText.textContent = "Good Effort! Let's improve your range of motion.";
+                    suggestionText.textContent = selectedExercise.suggestions.improve;
+                }
+            }, 2000);
+        }
+
+        // --- Helper & Drawing Functions ---
+        function calculateAngle(p1, p2, p3) {
+            if (!p1 || !p2 || !p3 || p1.score < 0.5 || p2.score < 0.5 || p3.score < 0.5) return null;
+            const rad = Math.atan2(p3.position.y - p2.position.y, p3.position.x - p2.position.x) - 
+                        Math.atan2(p1.position.y - p2.position.y, p1.position.x - p2.position.x);
+            let angle = Math.abs(rad * 180.0 / Math.PI);
+            if (angle > 180) angle = 360 - angle;
+            return angle;
+        }
+
+        function drawPose(pose) {
+            poseCanvas.width = videoPreview.clientWidth;
+            poseCanvas.height = videoPreview.clientHeight;
+            canvasCtx.clearRect(0, 0, poseCanvas.width, poseCanvas.height);
+            const keypoints = pose.keypoints;
+            
+            // Draw skeleton
+            const adjacentKeyPoints = posenet.getAdjacentKeyPoints(keypoints, 0.6);
+            adjacentKeyPoints.forEach((pair) => {
+                const [start, end] = pair;
+                canvasCtx.beginPath();
+                canvasCtx.moveTo(start.position.x, start.position.y);
+                canvasCtx.lineTo(end.position.x, end.position.y);
+                canvasCtx.lineWidth = 3;
+                canvasCtx.strokeStyle = '#4f46e5';
+                canvasCtx.stroke();
+            });
+            // Draw keypoints
+            keypoints.forEach(keypoint => {
+                if (keypoint.score > 0.6) {
+                    canvasCtx.beginPath();
+                    canvasCtx.arc(keypoint.position.x, keypoint.position.y, 5, 0, 2 * Math.PI);
+                    canvasCtx.fillStyle = '#818cf8';
+                    canvasCtx.fill();
+                }
+            });
+        }
+    </script>
+</body>
+</html>

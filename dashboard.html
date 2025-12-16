@@ -1,0 +1,240 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AI Gait Analysis Dashboard</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@3.13.0/dist/tf.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@tensorflow-models/posenet@2.2.2/dist/posenet.min.js"></script>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <style>
+        body { font-family: 'Inter', sans-serif; background-color: #f3f4f6; }
+        .container { max-width: 1200px; }
+        .dashboard-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 1.5rem; }
+        .card { background-color: white; border-radius: 0.75rem; box-shadow: 0 4px 6px -1px rgb(0 0 0 / 0.1), 0 2px 4px -2px rgb(0 0 0 / 0.1); padding: 1.5rem; }
+        .card-title { font-weight: 600; color: #1e40af; margin-bottom: 1rem; }
+        .metric { display: flex; justify-content: space-between; align-items: baseline; padding: 0.5rem 0; border-bottom: 1px solid #e5e7eb; }
+        .metric-label { color: #4b5563; }
+        .metric-value { font-weight: 600; color: #1f2937; font-size: 1.125rem; }
+        .exercise-item { background-color: #f3f4f6; padding: 0.75rem; border-radius: 0.5rem; margin-top: 0.5rem; }
+    </style>
+</head>
+<body class="p-4 md:p-8">
+    <div class="container mx-auto bg-white shadow-xl rounded-2xl p-8 space-y-8">
+        <header class="text-center">
+            <h1 class="text-4xl font-bold text-gray-800">AI Gait Analysis Dashboard</h1>
+            <p class="mt-2 text-gray-500">From Video to Actionable Recovery Insights</p>
+        </header>
+
+        <div id="upload-container">
+            <section class="upload-section text-center p-6 border-2 border-dashed border-gray-300 rounded-xl">
+                 <h2 class="text-xl font-semibold text-gray-700">1. Upload Walking Video</h2>
+                 <input type="file" id="video-upload" accept="video/*" class="mt-4 p-2 w-full max-w-md mx-auto border border-gray-300 rounded-lg shadow-sm">
+            </section>
+
+            <section id="video-preview-section" class="hidden mt-8">
+                <h2 class="text-xl font-semibold text-gray-700 mb-4">2. Analyze Video</h2>
+                <div class="relative w-full max-w-2xl mx-auto rounded-xl overflow-hidden shadow-lg bg-black">
+                    <video id="video-preview" controls class="w-full" muted playsinline></video>
+                    <canvas id="pose-canvas" class="absolute top-0 left-0 w-full h-full"></canvas>
+                </div>
+                <div class="text-center mt-4">
+                     <button id="analyze-btn" class="w-full max-w-md bg-blue-600 text-white font-semibold py-3 rounded-lg shadow-md hover:bg-blue-700">Start Analysis</button>
+                </div>
+            </section>
+        </div>
+        
+        <div id="loading-spinner" class="hidden text-center mt-4">
+            <div class="inline-block h-8 w-8 animate-spin rounded-full border-4 border-solid border-current border-r-transparent text-blue-500"></div>
+            <p class="mt-2 text-sm text-gray-600">Performing detailed analysis... Please wait.</p>
+        </div>
+
+        <section id="dashboard-section" class="hidden mt-8">
+            <h2 class="text-2xl font-bold text-gray-700 mb-6 text-center">3. Recovery Dashboard</h2>
+            <div class="dashboard-grid">
+                <div class="card">
+                    <h3 class="card-title">Key Gait Metrics</h3>
+                    <div class="metric"><span class="metric-label">Cadence</span><span id="cadence-value" class="metric-value">--</span></div>
+                    <div class="metric"><span class="metric-label">Walking Speed</span><span id="speed-value" class="metric-value">--</span></div>
+                    <div class="metric"><span class="metric-label">Avg. Stride Length</span><span id="stride-value" class="metric-value">--</span></div>
+                    <div class="metric"><span class="metric-label">Gait Symmetry</span><span id="symmetry-value" class="metric-value">--</span></div>
+                </div>
+                <div class="card">
+                    <h3 class="card-title">Joint Angle Analysis (Knee)</h3>
+                    <div class="metric"><span class="metric-label">Peak Left Flexion</span><span id="left-knee-value" class="metric-value">--</span></div>
+                    <div class="metric"><span class="metric-label">Peak Right Flexion</span><span id="right-knee-value" class="metric-value">--</span></div>
+                    <p class="text-xs text-gray-400 mt-4">Measures the maximum bend in your knee during walking. Higher values typically indicate better range of motion.</p>
+                </div>
+                <div class="card">
+                    <h3 class="card-title">Suggested Exercises</h3>
+                    <div id="exercise-list">
+                        <p class="text-sm text-gray-500">Exercises will be suggested based on your analysis.</p>
+                    </div>
+                </div>
+            </div>
+             <div class="text-center mt-8">
+                <button onclick="location.reload()" class="bg-gray-500 text-white font-semibold py-2 px-6 rounded-lg hover:bg-gray-600">Analyze Another Video</button>
+            </div>
+        </section>
+    </div>
+
+    <script>
+        const videoUpload = document.getElementById('video-upload');
+        const videoPreviewSection = document.getElementById('video-preview-section');
+        const videoPreview = document.getElementById('video-preview');
+        const analyzeBtn = document.getElementById('analyze-btn');
+        const loadingSpinner = document.getElementById('loading-spinner');
+        const dashboardSection = document.getElementById('dashboard-section');
+        const uploadContainer = document.getElementById('upload-container');
+        const poseCanvas = document.getElementById('pose-canvas');
+        const canvasCtx = poseCanvas.getContext('2d');
+        let animationFrameId;
+
+        // --- Event Listeners ---
+        videoUpload.addEventListener('change', (e) => {
+            const file = e.target.files[0];
+            if (file) {
+                const videoURL = URL.createObjectURL(file);
+                videoPreview.src = videoURL;
+                videoPreviewSection.classList.remove('hidden');
+                dashboardSection.classList.add('hidden');
+            }
+        });
+
+        analyzeBtn.addEventListener('click', async () => {
+             if (videoPreview.duration < 2) {
+                 alert('Video is too short. Please use a video that is at least 2 seconds long.');
+                 return;
+            }
+            uploadContainer.classList.add('hidden');
+            loadingSpinner.classList.remove('hidden');
+            analyzeBtn.disabled = true;
+
+            const model = await posenet.load({ architecture: 'MobileNetV1', outputStride: 16, multiplier: 0.75 });
+            const allPoses = [];
+            videoPreview.currentTime = 0;
+            videoPreview.play();
+
+            const processFrame = async () => {
+                const pose = await model.estimateSinglePose(videoPreview, { flipHorizontal: false });
+                allPoses.push(pose);
+                
+                poseCanvas.width = videoPreview.videoWidth;
+                poseCanvas.height = videoPreview.videoHeight;
+                canvasCtx.clearRect(0, 0, poseCanvas.width, poseCanvas.height);
+                if (pose && pose.keypoints) {
+                    posenet.util.getAdjacentKeyPoints(pose.keypoints, 0.5).forEach((pair) => {
+                        const [start, end] = pair;
+                        canvasCtx.beginPath();
+                        canvasCtx.moveTo(start.position.x, start.position.y);
+                        canvasCtx.lineTo(end.position.x, end.position.y);
+                        canvasCtx.lineWidth = 3;
+                        canvasCtx.strokeStyle = '#60a5fa';
+                        canvasCtx.stroke();
+                    });
+                }
+                if (!videoPreview.paused && !videoPreview.ended) {
+                    animationFrameId = requestAnimationFrame(processFrame);
+                }
+            };
+            animationFrameId = requestAnimationFrame(processFrame);
+
+            videoPreview.onended = () => {
+                cancelAnimationFrame(animationFrameId);
+                const metrics = calculateGaitMetrics(allPoses, videoPreview.duration);
+                displayDashboard(metrics);
+            };
+        });
+
+        // --- Core Analysis Function ---
+        function calculateGaitMetrics(poses, duration) {
+            const keypoints = poses.map(p => p.keypoints);
+            const getKeypoint = (frame, part) => frame.find(kp => kp.part === part);
+            const calculateAngle = (p1, p2, p3) => {
+                if (!p1 || !p2 || !p3) return null;
+                const a = Math.hypot(p2.position.x - p3.position.x, p2.position.y - p3.position.y);
+                const b = Math.hypot(p1.position.x - p3.position.x, p1.position.y - p3.position.y);
+                const c = Math.hypot(p1.position.x - p2.position.x, p1.position.y - p2.position.y);
+                const angleRad = Math.acos((a * a + c * c - b * b) / (2 * a * c));
+                return angleRad * (180 / Math.PI);
+            };
+
+            // 1. Cadence (steps/min)
+            let steps = 0;
+            const leftAnkleY = keypoints.map(kps => getKeypoint(kps, 'leftAnkle')?.position.y).filter(Boolean);
+            for (let i = 1; i < leftAnkleY.length - 1; i++) {
+                if (leftAnkleY[i] > leftAnkleY[i - 1] && leftAnkleY[i] > leftAnkleY[i + 1]) steps++;
+            }
+            const cadence = (steps / duration) * 60;
+
+            // 2. Walking Speed (pixels/sec)
+            const firstHip = getKeypoint(keypoints[0], 'leftHip');
+            const lastHip = getKeypoint(keypoints[keypoints.length - 1], 'leftHip');
+            const walkingSpeed = firstHip && lastHip ? Math.abs(lastHip.position.x - firstHip.position.x) / duration : 0;
+
+            // 3. Knee Angles and Stride Length
+            let leftKneeAngles = [], rightKneeAngles = [], strideLengths = [];
+            for (const frame of keypoints) {
+                const lHip = getKeypoint(frame, 'leftHip'), lKnee = getKeypoint(frame, 'leftKnee'), lAnkle = getKeypoint(frame, 'leftAnkle');
+                const rHip = getKeypoint(frame, 'rightHip'), rKnee = getKeypoint(frame, 'rightKnee'), rAnkle = getKeypoint(frame, 'rightAnkle');
+                leftKneeAngles.push(calculateAngle(lHip, lKnee, lAnkle));
+                rightKneeAngles.push(calculateAngle(rHip, rKnee, rAnkle));
+                if (lAnkle && rAnkle) strideLengths.push(Math.abs(lAnkle.position.x - rAnkle.position.x));
+            }
+            const peakLeftKnee = Math.max(...leftKneeAngles.filter(Boolean));
+            const peakRightKnee = Math.max(...rightKneeAngles.filter(Boolean));
+            const avgStrideLength = strideLengths.reduce((a, b) => a + b, 0) / strideLengths.length;
+
+            // 4. Symmetry Score (%)
+            const symmetry = (Math.min(peakLeftKnee, peakRightKnee) / Math.max(peakLeftKnee, peakRightKnee)) * 100;
+
+            return { cadence, walkingSpeed, avgStrideLength, peakLeftKnee, peakRightKnee, symmetry };
+        }
+        
+        // --- Exercise Recommendation Engine ---
+        function recommendExercises(metrics) {
+            const recommendations = new Set();
+            if (metrics.peakLeftKnee < 75 || metrics.peakRightKnee < 75) {
+                recommendations.add({ name: 'Heel Slides', reason: 'To improve knee range of motion.' });
+            }
+            if (metrics.symmetry < 90) {
+                recommendations.add({ name: 'Single Leg Stance', reason: 'To improve balance and weight-bearing symmetry.' });
+            }
+            if (metrics.cadence < 100) {
+                 recommendations.add({ name: 'High Knees Marching', reason: 'To improve walking pace and coordination.' });
+            }
+            if (recommendations.size === 0) {
+                recommendations.add({ name: 'General Mobility Routine', reason: 'Your metrics look good! Focus on maintaining overall mobility.' });
+            }
+            return Array.from(recommendations);
+        }
+
+        // --- UI Update Function ---
+        function displayDashboard(metrics) {
+            loadingSpinner.classList.add('hidden');
+            dashboardSection.classList.remove('hidden');
+
+            document.getElementById('cadence-value').textContent = `${metrics.cadence.toFixed(0)} steps/min`;
+            document.getElementById('speed-value').textContent = `${metrics.walkingSpeed.toFixed(0)} pixels/sec`;
+            document.getElementById('stride-value').textContent = `${metrics.avgStrideLength.toFixed(0)} pixels`;
+            document.getElementById('symmetry-value').textContent = `${metrics.symmetry.toFixed(1)} %`;
+            document.getElementById('left-knee-value').textContent = `${metrics.peakLeftKnee.toFixed(1)}°`;
+            document.getElementById('right-knee-value').textContent = `${metrics.peakRightKnee.toFixed(1)}°`;
+
+            const exercises = recommendExercises(metrics);
+            const exerciseListEl = document.getElementById('exercise-list');
+            exerciseListEl.innerHTML = '';
+            exercises.forEach(ex => {
+                exerciseListEl.innerHTML += `
+                    <div class="exercise-item">
+                        <p class="font-semibold">${ex.name}</p>
+                        <p class="text-xs text-gray-500">${ex.reason}</p>
+                    </div>`;
+            });
+        }
+    </script>
+</body>
+</html>
